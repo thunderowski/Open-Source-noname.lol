@@ -1,10 +1,17 @@
--- language: Lua, file: noname.lol.v3.lua, target: Roblox (executor)
--- Login -> main. Undetected / FOV / World Modulation / AutoFarm.
+-- language: Lua, file: noname.lol.A.lua, target: Roblox (executor, PC + mobile)
+-- AutoFarm = fly up once -> drive 4-7 studs -> hold W/drive forever until toggled off.
+-- No teleport. No repeat. Green metallic brand, purple metallic outline.
 
 -- ============ CONFIG ============
 local OWNER_NAME = "YOUR_OWNER_NAME_HERE"
 local KEY = "a3f8c2e1d9b74f6a0c5e8d2b1f4a7c9e3d6b0f2a5c8e1d4b7f0a3c6e9d2b5f8a1c4e7d0b3f6a9c2e5d8b1f4a7c0e3d6b9f2a5c8e1d4b7f0a3c6e9d2b5f8a1c4e7d0b3f6a9c2e5d8b1f4a7c0e3d6b9f2"
 local BRAND = "noname.lol"
+
+local FARM_RISE_SPEED  = 90
+local FARM_ALT_HEIGHT  = 20
+local FARM_DRIVE_MIN   = 4
+local FARM_DRIVE_MAX   = 7
+local FARM_DRIVE_SPEED = 40
 
 -- ============ SERVICES ============
 local Players = game:GetService("Players")
@@ -16,41 +23,84 @@ local Lighting = game:GetService("Lighting")
 local CoreGui = game:GetService("CoreGui")
 local LP = Players.LocalPlayer
 
--- ============ UI HELPERS ============
+-- ============ COLORS ============
 local C = {
     bg      = Color3.fromRGB(14, 14, 18),
     panel   = Color3.fromRGB(22, 22, 28),
     panel2  = Color3.fromRGB(30, 30, 38),
     accent  = Color3.fromRGB(0, 230, 110),
-    accentD = Color3.fromRGB(0, 160, 70),
     text    = Color3.fromRGB(240, 240, 245),
     sub     = Color3.fromRGB(130, 130, 145),
     danger  = Color3.fromRGB(255, 80, 80),
+    purple  = Color3.fromRGB(160, 90, 255),
 }
 
-local function corner(inst, r)
-    local c = Instance.new("UICorner")
-    c.CornerRadius = UDim.new(0, r or 8)
-    c.Parent = inst
-    return c
+-- ============ HELPERS ============
+local function corner(i, r)
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, r or 8); c.Parent = i; return c
 end
-local function stroke(inst, col, thick)
+local function stroke(i, c, t)
+    local s = Instance.new("UIStroke"); s.Color = c or C.accent; s.Thickness = t or 1.5; s.Parent = i; return s
+end
+
+local function purpleMetalOutline(frame, thickness)
     local s = Instance.new("UIStroke")
-    s.Color = col or C.accent
-    s.Thickness = thick or 1.5
+    s.Thickness = thickness or 2
     s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    s.Parent = inst
-    return s
+    s.Color = Color3.fromRGB(255, 255, 255)
+    s.Parent = frame
+    local g = Instance.new("UIGradient")
+    g.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(70, 20, 140)),
+        ColorSequenceKeypoint.new(0.20, Color3.fromRGB(150, 80, 255)),
+        ColorSequenceKeypoint.new(0.45, Color3.fromRGB(230, 200, 255)),
+        ColorSequenceKeypoint.new(0.55, Color3.fromRGB(230, 200, 255)),
+        ColorSequenceKeypoint.new(0.75, Color3.fromRGB(160, 90, 255)),
+        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(70, 20, 140)),
+    })
+    g.Parent = s
+    return s, g
 end
+
+local function greenMetalText(inst)
+    local g = Instance.new("UIGradient")
+    g.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(0, 80, 40)),
+        ColorSequenceKeypoint.new(0.20, Color3.fromRGB(0, 180, 90)),
+        ColorSequenceKeypoint.new(0.42, Color3.fromRGB(200, 255, 220)),
+        ColorSequenceKeypoint.new(0.50, Color3.fromRGB(200, 255, 220)),
+        ColorSequenceKeypoint.new(0.58, Color3.fromRGB(0, 220, 110)),
+        ColorSequenceKeypoint.new(0.80, Color3.fromRGB(0, 160, 80)),
+        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(0, 70, 35)),
+    })
+    g.Rotation = 0
+    g.Offset = Vector2.new(0, 0)
+    g.Parent = inst
+    return g
+end
+
+local function shimmer(g, speed)
+    speed = speed or 1.2
+    task.spawn(function()
+        while g.Parent do
+            local t0 = tick()
+            while tick() - t0 < speed and g.Parent do
+                local a = (tick() - t0) / speed
+                g.Offset = Vector2.new(a * 2.4 - 1.2, 0)
+                task.wait(1/60)
+            end
+            task.wait(0.6)
+        end
+    end)
+end
+
 local function makeDraggable(frame, handle)
     handle = handle or frame
     local dragging, dragStart, startPos
     handle.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1
         or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = true
-            dragStart = input.Position
-            startPos = frame.Position
+            dragging = true; dragStart = input.Position; startPos = frame.Position
             input.Changed:Connect(function()
                 if input.UserInputState == Enum.UserInputState.End then dragging = false end
             end)
@@ -67,15 +117,55 @@ local function makeDraggable(frame, handle)
         end
     end)
 end
-local function gradient(inst, stops, rotation)
-    local g = Instance.new("UIGradient")
-    g.Color = ColorSequence.new(stops)
-    g.Rotation = rotation or 0
-    g.Parent = inst
-    return g
+
+-- ============ LIGHTING FX ============
+local colorCorrection = Lighting:FindFirstChild("noname_cc") or Instance.new("ColorCorrectionEffect")
+colorCorrection.Name = "noname_cc"
+colorCorrection.TintColor = Color3.fromRGB(255, 255, 255)
+colorCorrection.Saturation = 0
+colorCorrection.Contrast = 0
+colorCorrection.Brightness = 0
+colorCorrection.Parent = Lighting
+
+local atmosphere = Lighting:FindFirstChild("noname_atmo") or Instance.new("Atmosphere")
+atmosphere.Name = "noname_atmo"
+atmosphere.Color = Color3.fromRGB(199, 199, 199)
+atmosphere.Decay = Color3.fromRGB(106, 112, 125)
+atmosphere.Density = 0.3
+atmosphere.Glare = 0
+atmosphere.Haze = 0
+atmosphere.Parent = Lighting
+
+local WM_PRESETS = {
+    { name = "Off",       tint = Color3.fromRGB(255,255,255), sat = 0,    con = 0,   bri = 0,   atmoCol = Color3.fromRGB(199,199,199), atmoDen = 0.3,  atmoHaze = 0,  atmoGlare = 0 },
+    { name = "Cyber",     tint = Color3.fromRGB(120, 200, 255), sat = 0.6, con = 0.2, bri = 0.05, atmoCol = Color3.fromRGB(40, 120, 200),  atmoDen = 0.4,  atmoHaze = 2,  atmoGlare = 1 },
+    { name = "Hell",      tint = Color3.fromRGB(255, 90, 60),   sat = 0.8, con = 0.3, bri = 0.1,  atmoCol = Color3.fromRGB(200, 40, 20),   atmoDen = 0.5,  atmoHaze = 3,  atmoGlare = 2 },
+    { name = "Toxic",     tint = Color3.fromRGB(120, 255, 120), sat = 0.9, con = 0.1, bri = 0.05, atmoCol = Color3.fromRGB(40, 200, 40),   atmoDen = 0.4,  atmoHaze = 2,  atmoGlare = 1 },
+    { name = "Purple",    tint = Color3.fromRGB(180, 120, 255), sat = 0.7, con = 0.2, bri = 0,    atmoCol = Color3.fromRGB(100, 40, 200),  atmoDen = 0.35, atmoHaze = 2,  atmoGlare = 1 },
+    { name = "Grayscale", tint = Color3.fromRGB(200,200,200),   sat = -1,  con = 0.1, bri = 0,    atmoCol = Color3.fromRGB(180,180,180),   atmoDen = 0.4,  atmoHaze = 0,  atmoGlare = 0 },
+    { name = "Neon",      tint = Color3.fromRGB(255, 100, 200), sat = 1,   con = 0.4, bri = 0.2,  atmoCol = Color3.fromRGB(255, 50, 150),  atmoDen = 0.5,  atmoHaze = 3,  atmoGlare = 3 },
+}
+local function applyWM(i)
+    local p = WM_PRESETS[i]
+    if not p then return end
+    TweenService:Create(colorCorrection, TweenInfo.new(0.4), {
+        TintColor = p.tint, Saturation = p.sat, Contrast = p.con, Brightness = p.bri,
+    }):Play()
+    TweenService:Create(atmosphere, TweenInfo.new(0.4), {
+        Color = p.atmoCol, Density = p.atmoDen, Haze = p.atmoHaze, Glare = p.atmoGlare,
+    }):Play()
 end
 
--- ============ LOGIN GUI ============
+-- ============ STATE ============
+local state = {
+    undetected = false, undetConn = nil,
+    fov = false, fovValue = 70, fovConn = nil,
+    origFOV = workspace.CurrentCamera and workspace.CurrentCamera.FieldOfView or 70,
+    wm = false, wmPreset = 0,
+    farm = false, farmConn = nil, farmBV = nil, farmRunId = 0,
+}
+
+-- ============ LOGIN ============
 local function buildLogin(onSuccess)
     local sg = Instance.new("ScreenGui")
     sg.Name = "noname_login"
@@ -100,20 +190,9 @@ local function buildLogin(onSuccess)
     frame.Active = true
     frame.Parent = sg
     corner(frame, 14)
-    stroke(frame, C.accent, 1.5)
+    local _, fG = purpleMetalOutline(frame, 2)
+    shimmer(fG, 1.1)
     makeDraggable(frame)
-
-    local bar = Instance.new("Frame")
-    bar.Size = UDim2.new(1, 0, 0, 3)
-    bar.BackgroundColor3 = C.accent
-    bar.BorderSizePixel = 0
-    bar.Parent = frame
-    corner(bar, 2)
-    gradient(bar, {
-        ColorSequenceKeypoint.new(0, C.accentD),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(180, 255, 210)),
-        ColorSequenceKeypoint.new(1, C.accentD),
-    })
 
     local title = Instance.new("TextLabel")
     title.Size = UDim2.new(1, 0, 0, 46)
@@ -121,23 +200,11 @@ local function buildLogin(onSuccess)
     title.BackgroundTransparency = 1
     title.Text = BRAND
     title.Font = Enum.Font.GothamBold
-    title.TextSize = 28
-    title.TextColor3 = C.accent
+    title.TextSize = 30
+    title.TextColor3 = Color3.fromRGB(255, 255, 255)
     title.Parent = frame
-    local titleGrad = gradient(title, {
-        ColorSequenceKeypoint.new(0, C.accent),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(220, 255, 235)),
-        ColorSequenceKeypoint.new(1, C.accentD),
-    })
-    task.spawn(function()
-        while title.Parent do
-            for i = 0, 1, 0.025 do
-                titleGrad.Offset = Vector2.new(i, 0)
-                task.wait(0.02)
-            end
-            task.wait(0.15)
-        end
-    end)
+    local tG = greenMetalText(title)
+    shimmer(tG, 0.9)
 
     local sub = Instance.new("TextLabel")
     sub.Size = UDim2.new(1, 0, 0, 16)
@@ -149,9 +216,9 @@ local function buildLogin(onSuccess)
     sub.TextColor3 = C.sub
     sub.Parent = frame
 
-    local function field(y, placeholder, isKey)
+    local function field(y, ph, isKey)
         local box = Instance.new("Frame")
-        box.Size = UDim2.new(1, -40, 0, 38)
+        box.Size = UDim2.new(1, -40, 0, 42)
         box.Position = UDim2.new(0, 20, 0, y)
         box.BackgroundColor3 = C.panel
         box.BorderSizePixel = 0
@@ -163,9 +230,9 @@ local function buildLogin(onSuccess)
         tb.Position = UDim2.new(0, 12, 0, 0)
         tb.BackgroundTransparency = 1
         tb.Text = ""
-        tb.PlaceholderText = placeholder
+        tb.PlaceholderText = ph
         tb.Font = Enum.Font.Gotham
-        tb.TextSize = isKey and 11 or 14
+        tb.TextSize = isKey and 11 or 15
         tb.TextColor3 = isKey and C.accent or C.text
         tb.PlaceholderColor3 = C.sub
         tb.TextXAlignment = Enum.TextXAlignment.Left
@@ -175,14 +242,13 @@ local function buildLogin(onSuccess)
         tb.FocusLost:Connect(function() s.Color = C.panel2; s.Thickness = 1 end)
         return tb
     end
-
     local uUser = field(90, "Roblox Username", false)
-    local uDisc = field(138, "Discord Username", false)
-    local uKey  = field(186, "512-bit Key", true)
+    local uDisc = field(142, "Discord Username", false)
+    local uKey  = field(194, "512-bit Key", true)
 
     local verifyBtn = Instance.new("TextButton")
-    verifyBtn.Size = UDim2.new(1, -40, 0, 42)
-    verifyBtn.Position = UDim2.new(0, 20, 0, 236)
+    verifyBtn.Size = UDim2.new(1, -40, 0, 46)
+    verifyBtn.Position = UDim2.new(0, 20, 0, 246)
     verifyBtn.BackgroundColor3 = C.accent
     verifyBtn.BorderSizePixel = 0
     verifyBtn.Text = "VERIFY"
@@ -192,21 +258,10 @@ local function buildLogin(onSuccess)
     verifyBtn.AutoButtonColor = false
     verifyBtn.Parent = frame
     corner(verifyBtn, 8)
-    gradient(verifyBtn, {
-        ColorSequenceKeypoint.new(0, C.accentD),
-        ColorSequenceKeypoint.new(0.5, C.accent),
-        ColorSequenceKeypoint.new(1, C.accentD),
-    })
-    verifyBtn.MouseEnter:Connect(function()
-        TweenService:Create(verifyBtn, TweenInfo.new(0.15), { Size = UDim2.new(1, -34, 0, 42), Position = UDim2.new(0, 17, 0, 236) }):Play()
-    end)
-    verifyBtn.MouseLeave:Connect(function()
-        TweenService:Create(verifyBtn, TweenInfo.new(0.15), { Size = UDim2.new(1, -40, 0, 42), Position = UDim2.new(0, 20, 0, 236) }):Play()
-    end)
 
     local status = Instance.new("TextLabel")
     status.Size = UDim2.new(1, -40, 0, 18)
-    status.Position = UDim2.new(0, 20, 0, 290)
+    status.Position = UDim2.new(0, 20, 0, 298)
     status.BackgroundTransparency = 1
     status.Text = ""
     status.Font = Enum.Font.Gotham
@@ -242,29 +297,10 @@ local function buildLogin(onSuccess)
         sg:Destroy()
         onSuccess()
     end)
-
     return sg
 end
 
--- ============ MAIN GUI ============
-local state = {
-    undetected = false, undetConn = nil,
-    fov = false, fovValue = 70, fovConn = nil,
-    origFOV = workspace.CurrentCamera and workspace.CurrentCamera.FieldOfView or 70,
-    wm = false, wmPreset = 0,
-    farm = false, farmConn = nil, farmBV = nil,
-}
-
--- world modulation presets
-local WM_PRESETS = {
-    { name = "Default",   clock = nil, fogEnd = nil, fogStart = nil, ambient = nil, outdoor = nil, bright = nil, exposure = nil },
-    { name = "Night",     clock = 0,    fogEnd = 300,  fogStart = 50,  ambient = Color3.fromRGB(15, 20, 40),  outdoor = Color3.fromRGB(30, 40, 70),  bright = 0.3, exposure = -0.5 },
-    { name = "Sunset",    clock = 17.5, fogEnd = 800,  fogStart = 100, ambient = Color3.fromRGB(120, 70, 50), outdoor = Color3.fromRGB(180, 110, 70), bright = 2.0, exposure = 0.2 },
-    { name = "Neon",      clock = 0,    fogEnd = 500,  fogStart = 40,  ambient = Color3.fromRGB(50, 0, 80),   outdoor = Color3.fromRGB(120, 0, 180), bright = 1.5, exposure = 0.5 },
-    { name = "Void",      clock = 0,    fogEnd = 60,   fogStart = 5,   ambient = Color3.fromRGB(0, 0, 0),     outdoor = Color3.fromRGB(0, 0, 0),     bright = 0.05, exposure = -2 },
-    { name = "Nuclear",   clock = 12,   fogEnd = 400,  fogStart = 30,  ambient = Color3.fromRGB(200, 255, 100), outdoor = Color3.fromRGB(150, 255, 80), bright = 3.0, exposure = 1.0 },
-}
-
+-- ============ MAIN ============
 local function buildMain()
     local sg = Instance.new("ScreenGui")
     sg.Name = "noname_main"
@@ -275,18 +311,18 @@ local function buildMain()
     sg.Parent = CoreGui
 
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 300, 0, 420)
-    frame.Position = UDim2.new(0.5, -150, 0.5, -190)
+    frame.Size = UDim2.new(0, 300, 0, 460)
+    frame.Position = UDim2.new(0.5, -150, 0.5, -230)
     frame.BackgroundColor3 = C.bg
     frame.BorderSizePixel = 0
     frame.Active = true
-    frame.BackgroundTransparency = 1
     frame.Parent = sg
     corner(frame, 14)
-    local fStroke = stroke(frame, C.accent, 1.5)
+    local _, pfG = purpleMetalOutline(frame, 2)
+    shimmer(pfG, 1.2)
 
     local topBar = Instance.new("Frame")
-    topBar.Size = UDim2.new(1, 0, 0, 52)
+    topBar.Size = UDim2.new(1, 0, 0, 54)
     topBar.BackgroundColor3 = C.panel
     topBar.BorderSizePixel = 0
     topBar.Parent = frame
@@ -300,69 +336,49 @@ local function buildMain()
     makeDraggable(frame, topBar)
 
     local name = Instance.new("TextLabel")
-    name.Size = UDim2.new(1, -60, 0, 52)
+    name.Size = UDim2.new(1, -60, 0, 54)
     name.Position = UDim2.new(0, 16, 0, 0)
     name.BackgroundTransparency = 1
     name.Text = BRAND
     name.Font = Enum.Font.GothamBold
-    name.TextSize = 22
-    name.TextColor3 = C.accent
+    name.TextSize = 24
+    name.TextColor3 = Color3.fromRGB(255, 255, 255)
     name.TextXAlignment = Enum.TextXAlignment.Left
     name.Parent = topBar
-    local nameGrad = gradient(name, {
-        ColorSequenceKeypoint.new(0, C.accent),
-        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(230, 255, 240)),
-        ColorSequenceKeypoint.new(1, C.accentD),
-    })
-    task.spawn(function()
-        while name.Parent do
-            for i = 0, 1, 0.02 do
-                nameGrad.Offset = Vector2.new(i, 0)
-                task.wait(0.02)
-            end
-            task.wait(0.1)
-        end
-    end)
+    local nameG = greenMetalText(name)
+    shimmer(nameG, 1.1)
 
     local close = Instance.new("TextButton")
-    close.Size = UDim2.new(0, 28, 0, 28)
-    close.Position = UDim2.new(1, -38, 0, 12)
+    close.Size = UDim2.new(0, 32, 0, 32)
+    close.Position = UDim2.new(1, -42, 0, 11)
     close.BackgroundColor3 = C.panel2
     close.BorderSizePixel = 0
     close.Text = "×"
     close.Font = Enum.Font.GothamBold
-    close.TextSize = 18
+    close.TextSize = 20
     close.TextColor3 = C.sub
     close.AutoButtonColor = false
     close.Parent = topBar
     corner(close, 6)
-    close.MouseEnter:Connect(function()
-        TweenService:Create(close, TweenInfo.new(0.15), { BackgroundColor3 = C.danger, TextColor3 = Color3.fromRGB(255,255,255) }):Play()
-    end)
-    close.MouseLeave:Connect(function()
-        TweenService:Create(close, TweenInfo.new(0.15), { BackgroundColor3 = C.panel2, TextColor3 = C.sub }):Play()
-    end)
     close.MouseButton1Click:Connect(function()
         if state.undetConn then state.undetConn:Disconnect() end
         if state.fovConn then state.fovConn:Disconnect() end
         if state.farmConn then state.farmConn:Disconnect() end
         if state.farmBV then state.farmBV:Destroy() end
         pcall(function() VirtualInputManager:SendKeyEvent(false, "W", false, game) end)
+        pcall(function()
+            local c = LP.Character
+            local h = c and c:FindFirstChildOfClass("Humanoid")
+            if h then h:Move(Vector3.zero, false); h.PlatformStand = false end
+        end)
         if workspace.CurrentCamera then workspace.CurrentCamera.FieldOfView = state.origFOV end
-        -- restore lighting
-        Lighting.ClockTime = 14.5
-        Lighting.FogEnd = 100000
-        Lighting.FogStart = 0
-        Lighting.Brightness = 2
-        Lighting.ExposureCompensation = 0
-        Lighting.Ambient = Color3.fromRGB(70, 70, 70)
-        Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+        applyWM(1)
         sg:Destroy()
     end)
 
     local statusBar = Instance.new("TextLabel")
     statusBar.Size = UDim2.new(1, -32, 0, 18)
-    statusBar.Position = UDim2.new(0, 16, 0, 62)
+    statusBar.Position = UDim2.new(0, 16, 0, 64)
     statusBar.BackgroundTransparency = 1
     statusBar.Text = "status: ready"
     statusBar.Font = Enum.Font.Gotham
@@ -370,15 +386,18 @@ local function buildMain()
     statusBar.TextColor3 = C.sub
     statusBar.TextXAlignment = Enum.TextXAlignment.Left
     statusBar.Parent = frame
-
     local function setStatus(msg, color)
         statusBar.Text = "status: " .. msg
         statusBar.TextColor3 = color or C.sub
     end
 
+    local CARD_H = 66
+    local GAP = 10
+    local BASE_Y = 90
+
     local function makeOption(y, label, tip)
         local btn = Instance.new("TextButton")
-        btn.Size = UDim2.new(1, -32, 0, 58)
+        btn.Size = UDim2.new(1, -32, 0, CARD_H)
         btn.Position = UDim2.new(0, 16, 0, y)
         btn.BackgroundColor3 = C.panel
         btn.BorderSizePixel = 0
@@ -389,19 +408,21 @@ local function buildMain()
         local bStroke = stroke(btn, C.panel2, 1)
 
         local titleL = Instance.new("TextLabel")
-        titleL.Size = UDim2.new(1, -70, 0, 22)
-        titleL.Position = UDim2.new(0, 14, 0, 8)
+        titleL.Size = UDim2.new(1, -80, 0, 24)
+        titleL.Position = UDim2.new(0, 14, 0, 10)
         titleL.BackgroundTransparency = 1
         titleL.Text = label
         titleL.Font = Enum.Font.GothamBold
-        titleL.TextSize = 14
-        titleL.TextColor3 = C.text
+        titleL.TextSize = 15
+        titleL.TextColor3 = Color3.fromRGB(255, 255, 255)
         titleL.TextXAlignment = Enum.TextXAlignment.Left
         titleL.Parent = btn
+        local tG = greenMetalText(titleL)
+        shimmer(tG, 1.4)
 
         local subL = Instance.new("TextLabel")
-        subL.Size = UDim2.new(1, -70, 0, 16)
-        subL.Position = UDim2.new(0, 14, 0, 30)
+        subL.Size = UDim2.new(1, -80, 0, 18)
+        subL.Position = UDim2.new(0, 14, 0, 36)
         subL.BackgroundTransparency = 1
         subL.Text = tip or ""
         subL.Font = Enum.Font.Gotham
@@ -411,23 +432,22 @@ local function buildMain()
         subL.Parent = btn
 
         local pill = Instance.new("Frame")
-        pill.Size = UDim2.new(0, 44, 0, 24)
-        pill.Position = UDim2.new(1, -56, 0.5, -12)
+        pill.Size = UDim2.new(0, 50, 0, 28)
+        pill.Position = UDim2.new(1, -64, 0.5, -14)
         pill.BackgroundColor3 = C.panel2
         pill.BorderSizePixel = 0
         pill.Parent = btn
-        corner(pill, 12)
-
+        corner(pill, 14)
         local knob = Instance.new("Frame")
-        knob.Size = UDim2.new(0, 18, 0, 18)
-        knob.Position = UDim2.new(0, 3, 0.5, -9)
+        knob.Size = UDim2.new(0, 22, 0, 22)
+        knob.Position = UDim2.new(0, 3, 0.5, -11)
         knob.BackgroundColor3 = C.sub
         knob.BorderSizePixel = 0
         knob.Parent = pill
-        corner(knob, 9)
+        corner(knob, 11)
 
         btn.MouseEnter:Connect(function()
-            TweenService:Create(bStroke, TweenInfo.new(0.15), { Color = C.accent, Transparency = 0.3 }):Play()
+            TweenService:Create(bStroke, TweenInfo.new(0.15), { Color = C.purple, Transparency = 0.3 }):Play()
         end)
         btn.MouseLeave:Connect(function()
             TweenService:Create(bStroke, TweenInfo.new(0.15), { Color = C.panel2, Transparency = 0 }):Play()
@@ -436,17 +456,17 @@ local function buildMain()
         local function setOn(on)
             local ti = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
             TweenService:Create(knob, ti, {
-                Position = on and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9),
-                BackgroundColor3 = on and Color3.fromRGB(255,255,255) or C.sub,
+                Position = on and UDim2.new(1, -25, 0.5, -11) or UDim2.new(0, 3, 0.5, -11),
+                BackgroundColor3 = on and Color3.fromRGB(255, 255, 255) or C.sub,
             }):Play()
             TweenService:Create(pill, ti, { BackgroundColor3 = on and C.accent or C.panel2 }):Play()
         end
-
         return btn, setOn, subL
     end
 
-    -- 1. Undetected
-    local undetBtn, undetSet, undetSub = makeOption(88, "Undetected", "kick on owner join")
+    -- 1 Undetected
+    local y1 = BASE_Y
+    local undetBtn, undetSet, undetSub = makeOption(y1, "Undetected", "kick on owner join")
     undetBtn.MouseButton1Click:Connect(function()
         state.undetected = not state.undetected
         undetSet(state.undetected)
@@ -469,8 +489,9 @@ local function buildMain()
         end
     end)
 
-    -- 2. FOV
-    local fovBtn, fovSet, fovSub = makeOption(152, "FOV Changer", "70 · scroll to adjust")
+    -- 2 FOV
+    local y2 = y1 + CARD_H + GAP
+    local fovBtn, fovSet, fovSub = makeOption(y2, "FOV Changer", "70 · scroll to adjust")
     fovBtn.MouseButton1Click:Connect(function()
         state.fov = not state.fov
         fovSet(state.fov)
@@ -495,116 +516,161 @@ local function buildMain()
         end
     end)
 
-    -- 3. World Modulation
-    local wmBtn, wmSet, wmSub = makeOption(216, "World Modulation", "click: toggle · scroll: preset")
+    -- 3 World Modulation
+    local y3 = y2 + CARD_H + GAP
+    local wmBtn, wmSet, wmSub = makeOption(y3, "World Modulation", "tap: cycle color")
     wmSet(false)
-    wmSub.Text = "off · " .. WM_PRESETS[1].name
-    local function applyPreset(idx)
-        local p = WM_PRESETS[idx]
-        if not p then return end
-        if p.clock then Lighting.ClockTime = p.clock end
-        if p.fogEnd then Lighting.FogEnd = p.fogEnd end
-        if p.fogStart then Lighting.FogStart = p.fogStart end
-        if p.ambient then Lighting.Ambient = p.ambient end
-        if p.outdoor then Lighting.OutdoorAmbient = p.outdoor end
-        if p.bright then Lighting.Brightness = p.bright end
-        if p.exposure then Lighting.ExposureCompensation = p.exposure end
-        wmSub.Text = "on · " .. p.name
-        setStatus("world: " .. p.name, C.accent)
-    end
+    wmSub.Text = "off · " .. WM_PRESETS[2].name
     wmBtn.MouseButton1Click:Connect(function()
-        state.wm = not state.wm
-        wmSet(state.wm)
-        if state.wm then
-            state.wmPreset = math.max(1, state.wmPreset)
-            applyPreset(state.wmPreset)
+        if not state.wm then
+            state.wm = true
+            state.wmPreset = 2
+            wmSet(true)
+            applyWM(state.wmPreset)
+            wmSub.Text = "on · " .. WM_PRESETS[state.wmPreset].name
+            setStatus("world: " .. WM_PRESETS[state.wmPreset].name, C.accent)
         else
-            -- restore defaults
-            Lighting.ClockTime = 14.5
-            Lighting.FogEnd = 100000
-            Lighting.FogStart = 0
-            Lighting.Ambient = Color3.fromRGB(70, 70, 70)
-            Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
-            Lighting.Brightness = 2
-            Lighting.ExposureCompensation = 0
-            wmSub.Text = "off · " .. WM_PRESETS[1].name
-            setStatus("world off", C.sub)
-        end
-    end)
-    -- scroll on WM card to cycle presets (only active when on)
-    wmBtn.MouseEnter:Connect(function()
-        if not wmBtn._wheelConn then
-            wmBtn._wheelConn = UserInputService.InputChanged:Connect(function(input)
-                if not state.wm then return end
-                if input.UserInputType == Enum.UserInputType.MouseWheel then
-                    state.wmPreset = state.wmPreset + (input.Position.Z > 0 and 1 or -1)
-                    if state.wmPreset < 2 then state.wmPreset = #WM_PRESETS end
-                    if state.wmPreset > #WM_PRESETS then state.wmPreset = 2 end
-                    applyPreset(state.wmPreset)
-                end
-            end)
+            state.wmPreset = state.wmPreset + 1
+            if state.wmPreset > #WM_PRESETS then
+                state.wm = false
+                state.wmPreset = 0
+                wmSet(false)
+                applyWM(1)
+                wmSub.Text = "off · " .. WM_PRESETS[2].name
+                setStatus("world off", C.sub)
+            else
+                applyWM(state.wmPreset)
+                wmSub.Text = "on · " .. WM_PRESETS[state.wmPreset].name
+                setStatus("world: " .. WM_PRESETS[state.wmPreset].name, C.accent)
+            end
         end
     end)
 
-    -- 4. AutoFarm
-    local farmBtn, farmSet, farmSub = makeOption(280, "Auto Farm", "fly up · hold W · loop")
+    -- 4 AutoFarm — Option A: fly up once, drive 4-7 studs, then hold W/drive forever. No teleport, no repeat.
+    local y4 = y3 + CARD_H + GAP
+    local farmBtn, farmSet, farmSub = makeOption(y4, "Auto Farm", "fly up · drive · hold W forever")
+
+    local function cleanupFarm()
+        if state.farmConn then state.farmConn:Disconnect(); state.farmConn = nil end
+        if state.farmBV then state.farmBV:Destroy(); state.farmBV = nil end
+        pcall(function() VirtualInputManager:SendKeyEvent(false, "W", false, game) end)
+        pcall(function()
+            local c = LP.Character
+            local h = c and c:FindFirstChildOfClass("Humanoid")
+            if h then
+                h:Move(Vector3.zero, false)
+                h.PlatformStand = false
+            end
+        end)
+    end
+
+    local function startFarm()
+        local char = LP.Character
+        local hrp = char and char:FindFirstChild("HumanoidRootPart")
+        local hum = char and char:FindFirstChildOfClass("Humanoid")
+        if not hrp or not hum then
+            setStatus("no character", C.danger)
+            return false
+        end
+
+        cleanupFarm()
+        local startPos = hrp.Position
+        local runId = state.farmRunId + 1
+        state.farmRunId = runId
+
+        local bv = Instance.new("BodyVelocity")
+        bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+        bv.Velocity = Vector3.zero
+        bv.Parent = hrp
+        state.farmBV = bv
+        hum.PlatformStand = true
+
+        local phase = 1         -- 1 = rise, 2 = drive 4-7, 3 = hold W forever
+        local altTarget = startPos + Vector3.new(0, FARM_ALT_HEIGHT, 0)
+        local driveDist = math.random(FARM_DRIVE_MIN, FARM_DRIVE_MAX)
+        local driveTarget = nil
+        local wHeld = false
+
+        local function holdW()
+            if wHeld then return end
+            wHeld = true
+            pcall(function() hum:Move(Vector3.new(0, 0, -1), true) end)
+            pcall(function() VirtualInputManager:SendKeyEvent(true, "W", false, game) end)
+        end
+        local function releaseW()
+            if not wHeld then return end
+            wHeld = false
+            pcall(function() hum:Move(Vector3.zero, false) end)
+            pcall(function() VirtualInputManager:SendKeyEvent(false, "W", false, game) end)
+        end
+
+        state.farmConn = RunService.Heartbeat:Connect(function()
+            if state.farmRunId ~= runId then return end
+            local c = LP.Character
+            if not c then return end
+            local h = c:FindFirstChild("HumanoidRootPart")
+            if not h then return end
+
+            if phase == 1 then
+                -- ascend to altitude
+                if h.Position.Y < altTarget.Y - 1 then
+                    bv.Velocity = Vector3.new(0, FARM_RISE_SPEED, 0)
+                else
+                    bv.Velocity = Vector3.zero
+                    local look = h.CFrame.LookVector
+                    local flat = Vector3.new(look.X, 0, look.Z)
+                    if flat.Magnitude < 0.01 then flat = Vector3.new(0, 0, -1) end
+                    driveTarget = h.Position + flat.Unit * driveDist
+                    phase = 2
+                    holdW()
+                end
+
+            elseif phase == 2 then
+                -- drive short distance with W held
+                holdW()
+                local delta = driveTarget - h.Position
+                local flatDelta = Vector3.new(delta.X, 0, delta.Z)
+                if flatDelta.Magnitude > 0.6 then
+                    bv.Velocity = flatDelta.Unit * math.min(flatDelta.Magnitude * 4, FARM_DRIVE_SPEED)
+                else
+                    bv.Velocity = Vector3.zero
+                    phase = 3
+                    farmSub.Text = "holding W · " .. driveDist .. " studs done"
+                    setStatus("autofarm holding W", C.accent)
+                end
+
+            elseif phase == 3 then
+                -- forever: keep W held, keep driving forward at constant speed, no teleport
+                holdW()
+                local look = h.CFrame.LookVector
+                local flat = Vector3.new(look.X, 0, look.Z)
+                if flat.Magnitude < 0.01 then flat = Vector3.new(0, 0, -1) end
+                bv.Velocity = flat.Unit * FARM_DRIVE_SPEED
+            end
+        end)
+        return true
+    end
+
     farmBtn.MouseButton1Click:Connect(function()
         state.farm = not state.farm
         farmSet(state.farm)
         if state.farm then
-            local char = LP.Character
-            local hrp = char and char:FindFirstChild("HumanoidRootPart")
-            if not hrp then
-                state.farm = false; farmSet(false)
-                setStatus("no character", C.danger); return
+            if startFarm() then
+                farmSub.Text = "running…"
+                setStatus("autofarm on", C.accent)
+            else
+                state.farm = false
+                farmSet(false)
             end
-            local startPos = hrp.Position
-            local altPos = startPos + Vector3.new(0, 50, 0)
-            local bv = Instance.new("BodyVelocity")
-            bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
-            bv.Velocity = Vector3.zero
-            bv.Parent = hrp
-            state.farmBV = bv
-            state.farmConn = RunService.Heartbeat:Connect(function()
-                if not state.farm then return end
-                local c = LP.Character
-                if not c then return end
-                local h = c:FindFirstChild("HumanoidRootPart")
-                if not h then return end
-                if h.Position.Y < altPos.Y - 6 then
-                    bv.Velocity = Vector3.new(0, 90, 0)
-                else
-                    h.CFrame = CFrame.new(altPos)
-                    bv.Velocity = Vector3.zero
-                    pcall(function() VirtualInputManager:SendKeyEvent(true, "W", false, game) end)
-                end
-            end)
-            farmSub.Text = "active — flying + farming"
-            setStatus("autofarm on", C.accent)
         else
-            if state.farmConn then state.farmConn:Disconnect(); state.farmConn = nil end
-            if state.farmBV then state.farmBV:Destroy(); state.farmBV = nil end
-            pcall(function() VirtualInputManager:SendKeyEvent(false, "W", false, game) end)
-            farmSub.Text = "fly up · hold W · loop"
+            cleanupFarm()
+            farmSub.Text = "fly up · drive · hold W forever"
             setStatus("autofarm off", C.sub)
         end
     end)
 
-    local foot = Instance.new("TextLabel")
-    foot.Size = UDim2.new(1, 0, 0, 18)
-    foot.Position = UDim2.new(0, 0, 1, -20)
-    foot.BackgroundTransparency = 1
-    foot.Text = BRAND .. " · v3"
-    foot.Font = Enum.Font.Gotham
-    foot.TextSize = 10
-    foot.TextColor3 = Color3.fromRGB(70, 70, 80)
-    foot.Parent = frame
-
-    frame.BackgroundTransparency = 0
-    topBar.BackgroundTransparency = 0
-    fStroke.Transparency = 0
     TweenService:Create(frame, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
-        Position = UDim2.new(0.5, -150, 0.5, -210),
+        Position = UDim2.new(0.5, -150, 0.5, -230),
     }):Play()
 
     return sg
