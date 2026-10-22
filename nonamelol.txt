@@ -1,6 +1,4 @@
--- language: Lua, file: noname.lol.A.lua, target: Roblox (executor, PC + mobile)
--- AutoFarm = fly up once -> drive 4-7 studs -> hold W/drive forever until toggled off.
--- No teleport. No repeat. Green metallic brand, purple metallic outline.
+--ai slop but super good
 
 -- ============ CONFIG ============
 local OWNER_NAME = "YOUR_OWNER_NAME_HERE"
@@ -12,6 +10,10 @@ local FARM_ALT_HEIGHT  = 20
 local FARM_DRIVE_MIN   = 4
 local FARM_DRIVE_MAX   = 7
 local FARM_DRIVE_SPEED = 40
+
+local SAVE_FILE = "noname_key.json"
+local SAVE_DAYS = 3
+local SAVE_SECS = SAVE_DAYS * 24 * 60 * 60
 
 -- ============ SERVICES ============
 local Players = game:GetService("Players")
@@ -118,6 +120,55 @@ local function makeDraggable(frame, handle)
     end)
 end
 
+-- ============ SAVE KEY (3 DAYS) ============
+local HAS_FS = (typeof(writefile) == "function" and typeof(readfile) == "function"
+    and typeof(isfile) == "function" and typeof(delfile) == "function")
+
+local function loadSaved()
+    if not HAS_FS then return nil end
+    local ok, data = pcall(function()
+        if not isfile(SAVE_FILE) then return nil end
+        local raw = readfile(SAVE_FILE)
+        if not raw or raw == "" then return nil end
+        local u = raw:match('"user"%s*:%s*"([^"]*)"')
+        local d = raw:match('"disc"%s*:%s*"([^"]*)"')
+        local k = raw:match('"key"%s*:%s*"([^"]*)"')
+        local t = tonumber(raw:match('"saved"%s*:%s*(%d+)'))
+        if not (u and d and k and t) then return nil end
+        if (os.time() - t) > SAVE_SECS then
+            pcall(function() delfile(SAVE_FILE) end)
+            return nil
+        end
+        return { user = u, disc = d, key = k, saved = t }
+    end)
+    if ok then return data end
+    return nil
+end
+
+local function saveKey(user, disc, key)
+    if not HAS_FS then return false end
+    local ok = pcall(function()
+        writefile(SAVE_FILE, string.format(
+            '{"user":"%s","disc":"%s","key":"%s","saved":%d}',
+            user, disc, key, os.time()
+        ))
+    end)
+    return ok
+end
+
+local function clearSaved()
+    if not HAS_FS then return end
+    pcall(function()
+        if isfile(SAVE_FILE) then delfile(SAVE_FILE) end
+    end)
+end
+
+local function daysLeft(t)
+    local r = SAVE_SECS - (os.time() - t)
+    if r <= 0 then return 0 end
+    return math.ceil(r / (24*60*60))
+end
+
 -- ============ LIGHTING FX ============
 local colorCorrection = Lighting:FindFirstChild("noname_cc") or Instance.new("ColorCorrectionEffect")
 colorCorrection.Name = "noname_cc"
@@ -183,8 +234,8 @@ local function buildLogin(onSuccess)
     dim.Parent = sg
 
     local frame = Instance.new("Frame")
-    frame.Size = UDim2.new(0, 360, 0, 320)
-    frame.Position = UDim2.new(0.5, -180, 0.5, -160)
+    frame.Size = UDim2.new(0, 360, 0, 370)
+    frame.Position = UDim2.new(0.5, -180, 0.5, -185)
     frame.BackgroundColor3 = C.bg
     frame.BorderSizePixel = 0
     frame.Active = true
@@ -246,9 +297,77 @@ local function buildLogin(onSuccess)
     local uDisc = field(142, "Discord Username", false)
     local uKey  = field(194, "512-bit Key", true)
 
+    local saved = loadSaved()
+    local saveEnabled = false
+
+    local saveCard = Instance.new("TextButton")
+    saveCard.Size = UDim2.new(1, -40, 0, 34)
+    saveCard.Position = UDim2.new(0, 20, 0, 246)
+    saveCard.BackgroundColor3 = C.panel
+    saveCard.BorderSizePixel = 0
+    saveCard.Text = ""
+    saveCard.AutoButtonColor = false
+    saveCard.Parent = frame
+    corner(saveCard, 8)
+    local scStroke = Instance.new("UIStroke"); scStroke.Color = C.panel2; scStroke.Thickness = 1; scStroke.Parent = saveCard
+
+    local saveLabel = Instance.new("TextLabel")
+    saveLabel.Size = UDim2.new(1, -70, 1, 0)
+    saveLabel.Position = UDim2.new(0, 12, 0, 0)
+    saveLabel.BackgroundTransparency = 1
+    saveLabel.Text = "Save key (" .. SAVE_DAYS .. " days)"
+    saveLabel.Font = Enum.Font.Gotham
+    saveLabel.TextSize = 13
+    saveLabel.TextColor3 = C.text
+    saveLabel.TextXAlignment = Enum.TextXAlignment.Left
+    saveLabel.Parent = saveCard
+
+    local sPill = Instance.new("Frame")
+    sPill.Size = UDim2.new(0, 40, 0, 22)
+    sPill.Position = UDim2.new(1, -52, 0.5, -11)
+    sPill.BackgroundColor3 = C.panel2
+    sPill.BorderSizePixel = 0
+    sPill.Parent = saveCard
+    corner(sPill, 11)
+    local sKnob = Instance.new("Frame")
+    sKnob.Size = UDim2.new(0, 18, 0, 18)
+    sKnob.Position = UDim2.new(0, 2, 0.5, -9)
+    sKnob.BackgroundColor3 = C.sub
+    sKnob.BorderSizePixel = 0
+    sKnob.Parent = sPill
+    corner(sKnob, 9)
+
+    local function drawSaveToggle(on)
+        saveEnabled = on
+        local ti = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        TweenService:Create(sKnob, ti, {
+            Position = on and UDim2.new(1, -20, 0.5, -9) or UDim2.new(0, 2, 0.5, -9),
+            BackgroundColor3 = on and Color3.fromRGB(255,255,255) or C.sub,
+        }):Play()
+        TweenService:Create(sPill, ti, { BackgroundColor3 = on and C.accent or C.panel2 }):Play()
+    end
+
+    if not HAS_FS then
+        saveLabel.Text = "Save key (unsupported)"
+        saveLabel.TextColor3 = C.sub
+    else
+        saveCard.MouseButton1Click:Connect(function()
+            drawSaveToggle(not saveEnabled)
+        end)
+    end
+
+    if saved then
+        uUser.Text = saved.user
+        uDisc.Text = saved.disc
+        uKey.Text  = saved.key
+        drawSaveToggle(true)
+        sub.Text = "saved key · " .. daysLeft(saved.saved) .. "d left"
+        sub.TextColor3 = C.accent
+    end
+
     local verifyBtn = Instance.new("TextButton")
-    verifyBtn.Size = UDim2.new(1, -40, 0, 46)
-    verifyBtn.Position = UDim2.new(0, 20, 0, 246)
+    verifyBtn.Size = UDim2.new(1, -40, 0, 42)
+    verifyBtn.Position = UDim2.new(0, 20, 0, 288)
     verifyBtn.BackgroundColor3 = C.accent
     verifyBtn.BorderSizePixel = 0
     verifyBtn.Text = "VERIFY"
@@ -261,7 +380,7 @@ local function buildLogin(onSuccess)
 
     local status = Instance.new("TextLabel")
     status.Size = UDim2.new(1, -40, 0, 18)
-    status.Position = UDim2.new(0, 20, 0, 298)
+    status.Position = UDim2.new(0, 20, 0, 338)
     status.BackgroundTransparency = 1
     status.Text = ""
     status.Font = Enum.Font.Gotham
@@ -270,7 +389,7 @@ local function buildLogin(onSuccess)
     status.Parent = frame
 
     local busy = false
-    verifyBtn.MouseButton1Click:Connect(function()
+    local function doVerify()
         if busy then return end
         if uUser.Text == "" or uDisc.Text == "" or uKey.Text == "" then
             status.TextColor3 = C.danger; status.Text = "fill all fields"; return
@@ -281,6 +400,13 @@ local function buildLogin(onSuccess)
         busy = true
         status.TextColor3 = C.accent; status.Text = "verified. loading..."
         verifyBtn.Text = "..."
+        if saveEnabled and HAS_FS then
+            if saveKey(uUser.Text, uDisc.Text, uKey.Text) then
+                status.Text = "verified · key saved " .. SAVE_DAYS .. "d"
+            end
+        else
+            clearSaved()
+        end
         local ti = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
         TweenService:Create(frame, ti, { BackgroundTransparency = 1 }):Play()
         for _, d in ipairs(frame:GetDescendants()) do
@@ -296,7 +422,13 @@ local function buildLogin(onSuccess)
         task.wait(0.4)
         sg:Destroy()
         onSuccess()
-    end)
+    end
+
+    verifyBtn.MouseButton1Click:Connect(doVerify)
+    if saved and saved.key == KEY then
+        task.delay(0.4, doVerify)
+    end
+
     return sg
 end
 
@@ -585,7 +717,7 @@ local function buildMain()
         state.farmBV = bv
         hum.PlatformStand = true
 
-        local phase = 1         -- 1 = rise, 2 = drive 4-7, 3 = hold W forever
+        local phase = 1
         local altTarget = startPos + Vector3.new(0, FARM_ALT_HEIGHT, 0)
         local driveDist = math.random(FARM_DRIVE_MIN, FARM_DRIVE_MAX)
         local driveTarget = nil
@@ -597,12 +729,6 @@ local function buildMain()
             pcall(function() hum:Move(Vector3.new(0, 0, -1), true) end)
             pcall(function() VirtualInputManager:SendKeyEvent(true, "W", false, game) end)
         end
-        local function releaseW()
-            if not wHeld then return end
-            wHeld = false
-            pcall(function() hum:Move(Vector3.zero, false) end)
-            pcall(function() VirtualInputManager:SendKeyEvent(false, "W", false, game) end)
-        end
 
         state.farmConn = RunService.Heartbeat:Connect(function()
             if state.farmRunId ~= runId then return end
@@ -612,7 +738,6 @@ local function buildMain()
             if not h then return end
 
             if phase == 1 then
-                -- ascend to altitude
                 if h.Position.Y < altTarget.Y - 1 then
                     bv.Velocity = Vector3.new(0, FARM_RISE_SPEED, 0)
                 else
@@ -626,7 +751,6 @@ local function buildMain()
                 end
 
             elseif phase == 2 then
-                -- drive short distance with W held
                 holdW()
                 local delta = driveTarget - h.Position
                 local flatDelta = Vector3.new(delta.X, 0, delta.Z)
@@ -640,7 +764,6 @@ local function buildMain()
                 end
 
             elseif phase == 3 then
-                -- forever: keep W held, keep driving forward at constant speed, no teleport
                 holdW()
                 local look = h.CFrame.LookVector
                 local flat = Vector3.new(look.X, 0, look.Z)
