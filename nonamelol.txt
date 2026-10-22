@@ -1,0 +1,620 @@
+-- language: Lua, file: noname.lol.v3.lua, target: Roblox (executor)
+-- Login -> main. Undetected / FOV / World Modulation / AutoFarm.
+
+-- ============ CONFIG ============
+local OWNER_NAME = "YOUR_OWNER_NAME_HERE"
+local KEY = "a3f8c2e1d9b74f6a0c5e8d2b1f4a7c9e3d6b0f2a5c8e1d4b7f0a3c6e9d2b5f8a1c4e7d0b3f6a9c2e5d8b1f4a7c0e3d6b9f2a5c8e1d4b7f0a3c6e9d2b5f8a1c4e7d0b3f6a9c2e5d8b1f4a7c0e3d6b9f2"
+local BRAND = "noname.lol"
+
+-- ============ SERVICES ============
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local TweenService = game:GetService("TweenService")
+local VirtualInputManager = game:GetService("VirtualInputManager")
+local Lighting = game:GetService("Lighting")
+local CoreGui = game:GetService("CoreGui")
+local LP = Players.LocalPlayer
+
+-- ============ UI HELPERS ============
+local C = {
+    bg      = Color3.fromRGB(14, 14, 18),
+    panel   = Color3.fromRGB(22, 22, 28),
+    panel2  = Color3.fromRGB(30, 30, 38),
+    accent  = Color3.fromRGB(0, 230, 110),
+    accentD = Color3.fromRGB(0, 160, 70),
+    text    = Color3.fromRGB(240, 240, 245),
+    sub     = Color3.fromRGB(130, 130, 145),
+    danger  = Color3.fromRGB(255, 80, 80),
+}
+
+local function corner(inst, r)
+    local c = Instance.new("UICorner")
+    c.CornerRadius = UDim.new(0, r or 8)
+    c.Parent = inst
+    return c
+end
+local function stroke(inst, col, thick)
+    local s = Instance.new("UIStroke")
+    s.Color = col or C.accent
+    s.Thickness = thick or 1.5
+    s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    s.Parent = inst
+    return s
+end
+local function makeDraggable(frame, handle)
+    handle = handle or frame
+    local dragging, dragStart, startPos
+    handle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+            dragging = true
+            dragStart = input.Position
+            startPos = frame.Position
+            input.Changed:Connect(function()
+                if input.UserInputState == Enum.UserInputState.End then dragging = false end
+            end)
+        end
+    end)
+    UserInputService.InputChanged:Connect(function(input)
+        if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement
+        or input.UserInputType == Enum.UserInputType.Touch) then
+            local delta = input.Position - dragStart
+            frame.Position = UDim2.new(
+                startPos.X.Scale, startPos.X.Offset + delta.X,
+                startPos.Y.Scale, startPos.Y.Offset + delta.Y
+            )
+        end
+    end)
+end
+local function gradient(inst, stops, rotation)
+    local g = Instance.new("UIGradient")
+    g.Color = ColorSequence.new(stops)
+    g.Rotation = rotation or 0
+    g.Parent = inst
+    return g
+end
+
+-- ============ LOGIN GUI ============
+local function buildLogin(onSuccess)
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "noname_login"
+    sg.ResetOnSpawn = false
+    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    sg.IgnoreGuiInset = true
+    sg.DisplayOrder = 999
+    sg.Parent = CoreGui
+
+    local dim = Instance.new("Frame")
+    dim.Size = UDim2.fromScale(1, 1)
+    dim.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    dim.BackgroundTransparency = 0.4
+    dim.BorderSizePixel = 0
+    dim.Parent = sg
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 360, 0, 320)
+    frame.Position = UDim2.new(0.5, -180, 0.5, -160)
+    frame.BackgroundColor3 = C.bg
+    frame.BorderSizePixel = 0
+    frame.Active = true
+    frame.Parent = sg
+    corner(frame, 14)
+    stroke(frame, C.accent, 1.5)
+    makeDraggable(frame)
+
+    local bar = Instance.new("Frame")
+    bar.Size = UDim2.new(1, 0, 0, 3)
+    bar.BackgroundColor3 = C.accent
+    bar.BorderSizePixel = 0
+    bar.Parent = frame
+    corner(bar, 2)
+    gradient(bar, {
+        ColorSequenceKeypoint.new(0, C.accentD),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(180, 255, 210)),
+        ColorSequenceKeypoint.new(1, C.accentD),
+    })
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, 0, 0, 46)
+    title.Position = UDim2.new(0, 0, 0, 14)
+    title.BackgroundTransparency = 1
+    title.Text = BRAND
+    title.Font = Enum.Font.GothamBold
+    title.TextSize = 28
+    title.TextColor3 = C.accent
+    title.Parent = frame
+    local titleGrad = gradient(title, {
+        ColorSequenceKeypoint.new(0, C.accent),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(220, 255, 235)),
+        ColorSequenceKeypoint.new(1, C.accentD),
+    })
+    task.spawn(function()
+        while title.Parent do
+            for i = 0, 1, 0.025 do
+                titleGrad.Offset = Vector2.new(i, 0)
+                task.wait(0.02)
+            end
+            task.wait(0.15)
+        end
+    end)
+
+    local sub = Instance.new("TextLabel")
+    sub.Size = UDim2.new(1, 0, 0, 16)
+    sub.Position = UDim2.new(0, 0, 0, 58)
+    sub.BackgroundTransparency = 1
+    sub.Text = "login to continue"
+    sub.Font = Enum.Font.Gotham
+    sub.TextSize = 12
+    sub.TextColor3 = C.sub
+    sub.Parent = frame
+
+    local function field(y, placeholder, isKey)
+        local box = Instance.new("Frame")
+        box.Size = UDim2.new(1, -40, 0, 38)
+        box.Position = UDim2.new(0, 20, 0, y)
+        box.BackgroundColor3 = C.panel
+        box.BorderSizePixel = 0
+        box.Parent = frame
+        corner(box, 7)
+        local s = stroke(box, C.panel2, 1)
+        local tb = Instance.new("TextBox")
+        tb.Size = UDim2.new(1, -20, 1, 0)
+        tb.Position = UDim2.new(0, 12, 0, 0)
+        tb.BackgroundTransparency = 1
+        tb.Text = ""
+        tb.PlaceholderText = placeholder
+        tb.Font = Enum.Font.Gotham
+        tb.TextSize = isKey and 11 or 14
+        tb.TextColor3 = isKey and C.accent or C.text
+        tb.PlaceholderColor3 = C.sub
+        tb.TextXAlignment = Enum.TextXAlignment.Left
+        tb.ClearTextOnFocus = false
+        tb.Parent = box
+        tb.Focused:Connect(function() s.Color = C.accent; s.Thickness = 1.5 end)
+        tb.FocusLost:Connect(function() s.Color = C.panel2; s.Thickness = 1 end)
+        return tb
+    end
+
+    local uUser = field(90, "Roblox Username", false)
+    local uDisc = field(138, "Discord Username", false)
+    local uKey  = field(186, "512-bit Key", true)
+
+    local verifyBtn = Instance.new("TextButton")
+    verifyBtn.Size = UDim2.new(1, -40, 0, 42)
+    verifyBtn.Position = UDim2.new(0, 20, 0, 236)
+    verifyBtn.BackgroundColor3 = C.accent
+    verifyBtn.BorderSizePixel = 0
+    verifyBtn.Text = "VERIFY"
+    verifyBtn.Font = Enum.Font.GothamBold
+    verifyBtn.TextSize = 16
+    verifyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    verifyBtn.AutoButtonColor = false
+    verifyBtn.Parent = frame
+    corner(verifyBtn, 8)
+    gradient(verifyBtn, {
+        ColorSequenceKeypoint.new(0, C.accentD),
+        ColorSequenceKeypoint.new(0.5, C.accent),
+        ColorSequenceKeypoint.new(1, C.accentD),
+    })
+    verifyBtn.MouseEnter:Connect(function()
+        TweenService:Create(verifyBtn, TweenInfo.new(0.15), { Size = UDim2.new(1, -34, 0, 42), Position = UDim2.new(0, 17, 0, 236) }):Play()
+    end)
+    verifyBtn.MouseLeave:Connect(function()
+        TweenService:Create(verifyBtn, TweenInfo.new(0.15), { Size = UDim2.new(1, -40, 0, 42), Position = UDim2.new(0, 20, 0, 236) }):Play()
+    end)
+
+    local status = Instance.new("TextLabel")
+    status.Size = UDim2.new(1, -40, 0, 18)
+    status.Position = UDim2.new(0, 20, 0, 290)
+    status.BackgroundTransparency = 1
+    status.Text = ""
+    status.Font = Enum.Font.Gotham
+    status.TextSize = 12
+    status.TextColor3 = C.danger
+    status.Parent = frame
+
+    local busy = false
+    verifyBtn.MouseButton1Click:Connect(function()
+        if busy then return end
+        if uUser.Text == "" or uDisc.Text == "" or uKey.Text == "" then
+            status.TextColor3 = C.danger; status.Text = "fill all fields"; return
+        end
+        if uKey.Text ~= KEY then
+            status.TextColor3 = C.danger; status.Text = "invalid key"; uKey.Text = ""; return
+        end
+        busy = true
+        status.TextColor3 = C.accent; status.Text = "verified. loading..."
+        verifyBtn.Text = "..."
+        local ti = TweenInfo.new(0.35, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+        TweenService:Create(frame, ti, { BackgroundTransparency = 1 }):Play()
+        for _, d in ipairs(frame:GetDescendants()) do
+            if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
+                TweenService:Create(d, ti, { TextTransparency = 1 }):Play()
+            elseif d:IsA("UIStroke") then
+                TweenService:Create(d, ti, { Transparency = 1 }):Play()
+            elseif d:IsA("Frame") then
+                TweenService:Create(d, ti, { BackgroundTransparency = 1 }):Play()
+            end
+        end
+        TweenService:Create(dim, ti, { BackgroundTransparency = 1 }):Play()
+        task.wait(0.4)
+        sg:Destroy()
+        onSuccess()
+    end)
+
+    return sg
+end
+
+-- ============ MAIN GUI ============
+local state = {
+    undetected = false, undetConn = nil,
+    fov = false, fovValue = 70, fovConn = nil,
+    origFOV = workspace.CurrentCamera and workspace.CurrentCamera.FieldOfView or 70,
+    wm = false, wmPreset = 0,
+    farm = false, farmConn = nil, farmBV = nil,
+}
+
+-- world modulation presets
+local WM_PRESETS = {
+    { name = "Default",   clock = nil, fogEnd = nil, fogStart = nil, ambient = nil, outdoor = nil, bright = nil, exposure = nil },
+    { name = "Night",     clock = 0,    fogEnd = 300,  fogStart = 50,  ambient = Color3.fromRGB(15, 20, 40),  outdoor = Color3.fromRGB(30, 40, 70),  bright = 0.3, exposure = -0.5 },
+    { name = "Sunset",    clock = 17.5, fogEnd = 800,  fogStart = 100, ambient = Color3.fromRGB(120, 70, 50), outdoor = Color3.fromRGB(180, 110, 70), bright = 2.0, exposure = 0.2 },
+    { name = "Neon",      clock = 0,    fogEnd = 500,  fogStart = 40,  ambient = Color3.fromRGB(50, 0, 80),   outdoor = Color3.fromRGB(120, 0, 180), bright = 1.5, exposure = 0.5 },
+    { name = "Void",      clock = 0,    fogEnd = 60,   fogStart = 5,   ambient = Color3.fromRGB(0, 0, 0),     outdoor = Color3.fromRGB(0, 0, 0),     bright = 0.05, exposure = -2 },
+    { name = "Nuclear",   clock = 12,   fogEnd = 400,  fogStart = 30,  ambient = Color3.fromRGB(200, 255, 100), outdoor = Color3.fromRGB(150, 255, 80), bright = 3.0, exposure = 1.0 },
+}
+
+local function buildMain()
+    local sg = Instance.new("ScreenGui")
+    sg.Name = "noname_main"
+    sg.ResetOnSpawn = false
+    sg.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    sg.IgnoreGuiInset = true
+    sg.DisplayOrder = 998
+    sg.Parent = CoreGui
+
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(0, 300, 0, 420)
+    frame.Position = UDim2.new(0.5, -150, 0.5, -190)
+    frame.BackgroundColor3 = C.bg
+    frame.BorderSizePixel = 0
+    frame.Active = true
+    frame.BackgroundTransparency = 1
+    frame.Parent = sg
+    corner(frame, 14)
+    local fStroke = stroke(frame, C.accent, 1.5)
+
+    local topBar = Instance.new("Frame")
+    topBar.Size = UDim2.new(1, 0, 0, 52)
+    topBar.BackgroundColor3 = C.panel
+    topBar.BorderSizePixel = 0
+    topBar.Parent = frame
+    corner(topBar, 14)
+    local topFix = Instance.new("Frame")
+    topFix.Size = UDim2.new(1, 0, 0, 14)
+    topFix.Position = UDim2.new(0, 0, 1, -14)
+    topFix.BackgroundColor3 = C.panel
+    topFix.BorderSizePixel = 0
+    topFix.Parent = topBar
+    makeDraggable(frame, topBar)
+
+    local name = Instance.new("TextLabel")
+    name.Size = UDim2.new(1, -60, 0, 52)
+    name.Position = UDim2.new(0, 16, 0, 0)
+    name.BackgroundTransparency = 1
+    name.Text = BRAND
+    name.Font = Enum.Font.GothamBold
+    name.TextSize = 22
+    name.TextColor3 = C.accent
+    name.TextXAlignment = Enum.TextXAlignment.Left
+    name.Parent = topBar
+    local nameGrad = gradient(name, {
+        ColorSequenceKeypoint.new(0, C.accent),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(230, 255, 240)),
+        ColorSequenceKeypoint.new(1, C.accentD),
+    })
+    task.spawn(function()
+        while name.Parent do
+            for i = 0, 1, 0.02 do
+                nameGrad.Offset = Vector2.new(i, 0)
+                task.wait(0.02)
+            end
+            task.wait(0.1)
+        end
+    end)
+
+    local close = Instance.new("TextButton")
+    close.Size = UDim2.new(0, 28, 0, 28)
+    close.Position = UDim2.new(1, -38, 0, 12)
+    close.BackgroundColor3 = C.panel2
+    close.BorderSizePixel = 0
+    close.Text = "×"
+    close.Font = Enum.Font.GothamBold
+    close.TextSize = 18
+    close.TextColor3 = C.sub
+    close.AutoButtonColor = false
+    close.Parent = topBar
+    corner(close, 6)
+    close.MouseEnter:Connect(function()
+        TweenService:Create(close, TweenInfo.new(0.15), { BackgroundColor3 = C.danger, TextColor3 = Color3.fromRGB(255,255,255) }):Play()
+    end)
+    close.MouseLeave:Connect(function()
+        TweenService:Create(close, TweenInfo.new(0.15), { BackgroundColor3 = C.panel2, TextColor3 = C.sub }):Play()
+    end)
+    close.MouseButton1Click:Connect(function()
+        if state.undetConn then state.undetConn:Disconnect() end
+        if state.fovConn then state.fovConn:Disconnect() end
+        if state.farmConn then state.farmConn:Disconnect() end
+        if state.farmBV then state.farmBV:Destroy() end
+        pcall(function() VirtualInputManager:SendKeyEvent(false, "W", false, game) end)
+        if workspace.CurrentCamera then workspace.CurrentCamera.FieldOfView = state.origFOV end
+        -- restore lighting
+        Lighting.ClockTime = 14.5
+        Lighting.FogEnd = 100000
+        Lighting.FogStart = 0
+        Lighting.Brightness = 2
+        Lighting.ExposureCompensation = 0
+        Lighting.Ambient = Color3.fromRGB(70, 70, 70)
+        Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+        sg:Destroy()
+    end)
+
+    local statusBar = Instance.new("TextLabel")
+    statusBar.Size = UDim2.new(1, -32, 0, 18)
+    statusBar.Position = UDim2.new(0, 16, 0, 62)
+    statusBar.BackgroundTransparency = 1
+    statusBar.Text = "status: ready"
+    statusBar.Font = Enum.Font.Gotham
+    statusBar.TextSize = 11
+    statusBar.TextColor3 = C.sub
+    statusBar.TextXAlignment = Enum.TextXAlignment.Left
+    statusBar.Parent = frame
+
+    local function setStatus(msg, color)
+        statusBar.Text = "status: " .. msg
+        statusBar.TextColor3 = color or C.sub
+    end
+
+    local function makeOption(y, label, tip)
+        local btn = Instance.new("TextButton")
+        btn.Size = UDim2.new(1, -32, 0, 58)
+        btn.Position = UDim2.new(0, 16, 0, y)
+        btn.BackgroundColor3 = C.panel
+        btn.BorderSizePixel = 0
+        btn.Text = ""
+        btn.AutoButtonColor = false
+        btn.Parent = frame
+        corner(btn, 10)
+        local bStroke = stroke(btn, C.panel2, 1)
+
+        local titleL = Instance.new("TextLabel")
+        titleL.Size = UDim2.new(1, -70, 0, 22)
+        titleL.Position = UDim2.new(0, 14, 0, 8)
+        titleL.BackgroundTransparency = 1
+        titleL.Text = label
+        titleL.Font = Enum.Font.GothamBold
+        titleL.TextSize = 14
+        titleL.TextColor3 = C.text
+        titleL.TextXAlignment = Enum.TextXAlignment.Left
+        titleL.Parent = btn
+
+        local subL = Instance.new("TextLabel")
+        subL.Size = UDim2.new(1, -70, 0, 16)
+        subL.Position = UDim2.new(0, 14, 0, 30)
+        subL.BackgroundTransparency = 1
+        subL.Text = tip or ""
+        subL.Font = Enum.Font.Gotham
+        subL.TextSize = 11
+        subL.TextColor3 = C.sub
+        subL.TextXAlignment = Enum.TextXAlignment.Left
+        subL.Parent = btn
+
+        local pill = Instance.new("Frame")
+        pill.Size = UDim2.new(0, 44, 0, 24)
+        pill.Position = UDim2.new(1, -56, 0.5, -12)
+        pill.BackgroundColor3 = C.panel2
+        pill.BorderSizePixel = 0
+        pill.Parent = btn
+        corner(pill, 12)
+
+        local knob = Instance.new("Frame")
+        knob.Size = UDim2.new(0, 18, 0, 18)
+        knob.Position = UDim2.new(0, 3, 0.5, -9)
+        knob.BackgroundColor3 = C.sub
+        knob.BorderSizePixel = 0
+        knob.Parent = pill
+        corner(knob, 9)
+
+        btn.MouseEnter:Connect(function()
+            TweenService:Create(bStroke, TweenInfo.new(0.15), { Color = C.accent, Transparency = 0.3 }):Play()
+        end)
+        btn.MouseLeave:Connect(function()
+            TweenService:Create(bStroke, TweenInfo.new(0.15), { Color = C.panel2, Transparency = 0 }):Play()
+        end)
+
+        local function setOn(on)
+            local ti = TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.Out)
+            TweenService:Create(knob, ti, {
+                Position = on and UDim2.new(1, -21, 0.5, -9) or UDim2.new(0, 3, 0.5, -9),
+                BackgroundColor3 = on and Color3.fromRGB(255,255,255) or C.sub,
+            }):Play()
+            TweenService:Create(pill, ti, { BackgroundColor3 = on and C.accent or C.panel2 }):Play()
+        end
+
+        return btn, setOn, subL
+    end
+
+    -- 1. Undetected
+    local undetBtn, undetSet, undetSub = makeOption(88, "Undetected", "kick on owner join")
+    undetBtn.MouseButton1Click:Connect(function()
+        state.undetected = not state.undetected
+        undetSet(state.undetected)
+        undetSub.Text = state.undetected and "armed — watching for owner" or "kick on owner join"
+        if state.undetected then
+            state.undetConn = Players.PlayerAdded:Connect(function(plr)
+                if plr.Name == OWNER_NAME then
+                    LP:Kick("Owner Joined in game stay undetected!")
+                end
+            end)
+            for _, plr in ipairs(Players:GetPlayers()) do
+                if plr.Name == OWNER_NAME then
+                    LP:Kick("Owner Joined in game stay undetected!")
+                end
+            end
+            setStatus("undetected armed", C.accent)
+        else
+            if state.undetConn then state.undetConn:Disconnect(); state.undetConn = nil end
+            setStatus("undetected off", C.sub)
+        end
+    end)
+
+    -- 2. FOV
+    local fovBtn, fovSet, fovSub = makeOption(152, "FOV Changer", "70 · scroll to adjust")
+    fovBtn.MouseButton1Click:Connect(function()
+        state.fov = not state.fov
+        fovSet(state.fov)
+        if state.fov then
+            workspace.CurrentCamera.FieldOfView = state.fovValue
+            fovSub.Text = state.fovValue .. " · scroll to adjust"
+            if not state.fovConn then
+                state.fovConn = UserInputService.InputChanged:Connect(function(input)
+                    if not state.fov then return end
+                    if input.UserInputType == Enum.UserInputType.MouseWheel then
+                        state.fovValue = math.clamp(state.fovValue + input.Position.Z * 5, 30, 120)
+                        workspace.CurrentCamera.FieldOfView = state.fovValue
+                        fovSub.Text = state.fovValue .. " · scroll to adjust"
+                    end
+                end)
+            end
+            setStatus("fov " .. state.fovValue, C.accent)
+        else
+            workspace.CurrentCamera.FieldOfView = state.origFOV
+            fovSub.Text = "70 · scroll to adjust"
+            setStatus("fov off", C.sub)
+        end
+    end)
+
+    -- 3. World Modulation
+    local wmBtn, wmSet, wmSub = makeOption(216, "World Modulation", "click: toggle · scroll: preset")
+    wmSet(false)
+    wmSub.Text = "off · " .. WM_PRESETS[1].name
+    local function applyPreset(idx)
+        local p = WM_PRESETS[idx]
+        if not p then return end
+        if p.clock then Lighting.ClockTime = p.clock end
+        if p.fogEnd then Lighting.FogEnd = p.fogEnd end
+        if p.fogStart then Lighting.FogStart = p.fogStart end
+        if p.ambient then Lighting.Ambient = p.ambient end
+        if p.outdoor then Lighting.OutdoorAmbient = p.outdoor end
+        if p.bright then Lighting.Brightness = p.bright end
+        if p.exposure then Lighting.ExposureCompensation = p.exposure end
+        wmSub.Text = "on · " .. p.name
+        setStatus("world: " .. p.name, C.accent)
+    end
+    wmBtn.MouseButton1Click:Connect(function()
+        state.wm = not state.wm
+        wmSet(state.wm)
+        if state.wm then
+            state.wmPreset = math.max(1, state.wmPreset)
+            applyPreset(state.wmPreset)
+        else
+            -- restore defaults
+            Lighting.ClockTime = 14.5
+            Lighting.FogEnd = 100000
+            Lighting.FogStart = 0
+            Lighting.Ambient = Color3.fromRGB(70, 70, 70)
+            Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+            Lighting.Brightness = 2
+            Lighting.ExposureCompensation = 0
+            wmSub.Text = "off · " .. WM_PRESETS[1].name
+            setStatus("world off", C.sub)
+        end
+    end)
+    -- scroll on WM card to cycle presets (only active when on)
+    wmBtn.MouseEnter:Connect(function()
+        if not wmBtn._wheelConn then
+            wmBtn._wheelConn = UserInputService.InputChanged:Connect(function(input)
+                if not state.wm then return end
+                if input.UserInputType == Enum.UserInputType.MouseWheel then
+                    state.wmPreset = state.wmPreset + (input.Position.Z > 0 and 1 or -1)
+                    if state.wmPreset < 2 then state.wmPreset = #WM_PRESETS end
+                    if state.wmPreset > #WM_PRESETS then state.wmPreset = 2 end
+                    applyPreset(state.wmPreset)
+                end
+            end)
+        end
+    end)
+
+    -- 4. AutoFarm
+    local farmBtn, farmSet, farmSub = makeOption(280, "Auto Farm", "fly up · hold W · loop")
+    farmBtn.MouseButton1Click:Connect(function()
+        state.farm = not state.farm
+        farmSet(state.farm)
+        if state.farm then
+            local char = LP.Character
+            local hrp = char and char:FindFirstChild("HumanoidRootPart")
+            if not hrp then
+                state.farm = false; farmSet(false)
+                setStatus("no character", C.danger); return
+            end
+            local startPos = hrp.Position
+            local altPos = startPos + Vector3.new(0, 50, 0)
+            local bv = Instance.new("BodyVelocity")
+            bv.MaxForce = Vector3.new(1e6, 1e6, 1e6)
+            bv.Velocity = Vector3.zero
+            bv.Parent = hrp
+            state.farmBV = bv
+            state.farmConn = RunService.Heartbeat:Connect(function()
+                if not state.farm then return end
+                local c = LP.Character
+                if not c then return end
+                local h = c:FindFirstChild("HumanoidRootPart")
+                if not h then return end
+                if h.Position.Y < altPos.Y - 6 then
+                    bv.Velocity = Vector3.new(0, 90, 0)
+                else
+                    h.CFrame = CFrame.new(altPos)
+                    bv.Velocity = Vector3.zero
+                    pcall(function() VirtualInputManager:SendKeyEvent(true, "W", false, game) end)
+                end
+            end)
+            farmSub.Text = "active — flying + farming"
+            setStatus("autofarm on", C.accent)
+        else
+            if state.farmConn then state.farmConn:Disconnect(); state.farmConn = nil end
+            if state.farmBV then state.farmBV:Destroy(); state.farmBV = nil end
+            pcall(function() VirtualInputManager:SendKeyEvent(false, "W", false, game) end)
+            farmSub.Text = "fly up · hold W · loop"
+            setStatus("autofarm off", C.sub)
+        end
+    end)
+
+    local foot = Instance.new("TextLabel")
+    foot.Size = UDim2.new(1, 0, 0, 18)
+    foot.Position = UDim2.new(0, 0, 1, -20)
+    foot.BackgroundTransparency = 1
+    foot.Text = BRAND .. " · v3"
+    foot.Font = Enum.Font.Gotham
+    foot.TextSize = 10
+    foot.TextColor3 = Color3.fromRGB(70, 70, 80)
+    foot.Parent = frame
+
+    frame.BackgroundTransparency = 0
+    topBar.BackgroundTransparency = 0
+    fStroke.Transparency = 0
+    TweenService:Create(frame, TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out), {
+        Position = UDim2.new(0.5, -150, 0.5, -210),
+    }):Play()
+
+    return sg
+end
+
+-- ============ BOOT ============
+local started = false
+local function start()
+    if started then return end
+    started = true
+    buildMain()
+end
+buildLogin(start)
